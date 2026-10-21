@@ -1,6 +1,4 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
+# ── Dependencies ──
 /node_modules
 /.pnp
 .pnp.*
@@ -10,32 +8,55 @@
 !.yarn/releases
 !.yarn/versions
 
-# testing
-/coverage
-
-# next.js
+# ── Next.js / build output ──
 /.next/
 /out/
-
-# production
 /build
+/dist
+.turbo
+.vercel
+*.tsbuildinfo
+next-env.d.ts
 
-# misc
-.DS_Store
+# ── Environment & secrets (only the template is committed) ──
+.env*
+!.env.example
 *.pem
+*.key
+*.p12
 
-# debug
+# ── Supabase CLI local state ──
+supabase/.temp/
+supabase/.branches/
+supabase/.env*
+
+# ── Testing ──
+/coverage
+/playwright-report
+/test-results
+/blob-report
+
+# ── Logs & caches ──
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+.eslintcache
+.cache
 
-# env files (can opt-in for committing if needed)
-.env*
+# ── Editors ──
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
 
-# vercel
-.vercel
+# ── OS ──
+.DS_Store
+Thumbs.db
+desktop.ini
 
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+# ── Claude Code (personal settings; shared .claude/settings.json stays committed) ──
+.claude/settings.local.json
