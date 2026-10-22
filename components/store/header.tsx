@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { getProfile } from "@/lib/auth";
 import { getCartCount } from "@/lib/cart";
 import { getCategoryTree, getSettings } from "@/lib/data/catalog";
+import { site } from "@/site.config";
 
 export function Header() {
   return (
@@ -13,7 +14,7 @@ export function Header() {
           <MobileMenu />
         </Suspense>
         <Link href="/" className="text-xl font-bold tracking-tight text-brand-600">
-          <Suspense fallback="UpStore">
+          <Suspense fallback={site.name}>
             <StoreName />
           </Suspense>
         </Link>

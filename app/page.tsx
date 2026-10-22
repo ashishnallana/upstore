@@ -3,35 +3,36 @@ import { Suspense } from "react";
 import { ProductGrid } from "@/components/store/product-grid";
 import { GridSkeleton } from "@/components/ui/display";
 import { getCategoryTree, getProducts } from "@/lib/data/catalog";
+import { site } from "@/site.config";
 
 export default function HomePage() {
   return (
     <>
       <section className="bg-gradient-to-br from-brand-50 to-white">
         <div className="container-x py-16 sm:py-24">
-          <p className="text-sm font-semibold uppercase tracking-wider text-brand-600">New season</p>
-          <h1 className="mt-3 max-w-2xl text-4xl font-bold tracking-tight sm:text-5xl">Everything you need, delivered to your door.</h1>
-          <p className="mt-4 max-w-xl text-lg text-zinc-600">Electronics, fashion and home essentials at honest prices. Free shipping on qualifying orders.</p>
+          <p className="text-sm font-semibold uppercase tracking-wider text-brand-600">{site.hero.eyebrow}</p>
+          <h1 className="mt-3 max-w-2xl text-4xl font-bold tracking-tight sm:text-5xl">{site.hero.title}</h1>
+          <p className="mt-4 max-w-xl text-lg text-zinc-600">{site.hero.subtitle}</p>
           <div className="mt-8 flex gap-3">
-            <Link href="/search" className="btn-primary px-6 py-3">
-              Shop all
+            <Link href={site.hero.primary.href} className="btn-primary px-6 py-3">
+              {site.hero.primary.label}
             </Link>
-            <Link href="/search?sort=rating" className="btn-secondary px-6 py-3">
-              Top rated
+            <Link href={site.hero.secondary.href} className="btn-secondary px-6 py-3">
+              {site.hero.secondary.label}
             </Link>
           </div>
         </div>
       </section>
 
       <section className="container-x mt-14">
-        <h2 className="mb-6 text-xl font-semibold">Shop by category</h2>
+        <h2 className="mb-6 text-xl font-semibold">{site.home.categoriesTitle}</h2>
         <Suspense fallback={<div className="skeleton h-28" />}>
           <CategoryTiles />
         </Suspense>
       </section>
 
       <section className="container-x mt-14">
-        <h2 className="mb-6 text-xl font-semibold">Featured</h2>
+        <h2 className="mb-6 text-xl font-semibold">{site.home.featuredTitle}</h2>
         <Suspense fallback={<GridSkeleton />}>
           <Products featured />
         </Suspense>
@@ -39,7 +40,7 @@ export default function HomePage() {
 
       <section className="container-x mt-14">
         <div className="mb-6 flex items-center justify-between">
-          <h2 className="text-xl font-semibold">New arrivals</h2>
+          <h2 className="text-xl font-semibold">{site.home.newArrivalsTitle}</h2>
           <Link href="/search?sort=new" className="text-sm font-medium text-brand-600 hover:underline">
             View all
           </Link>

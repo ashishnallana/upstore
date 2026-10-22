@@ -7,6 +7,7 @@ import { TAGS } from "@/lib/data/catalog";
 import { createClient } from "@/lib/supabase/server";
 import type { ActionState, OrderStatus, ProductOption, Role } from "@/lib/types";
 import { slugify, str, toMinor } from "@/lib/utils";
+import { site } from "@/site.config";
 
 // Every action re-checks the admin role (RLS enforces it again in the DB)
 // and expires the cache tags its change affects.
@@ -28,7 +29,7 @@ export async function saveSettings(_: ActionState, form: FormData): Promise<Acti
   const { error } = await supabase
     .from("store_settings")
     .update({
-      store_name: str(form, "store_name") || "UpStore",
+      store_name: str(form, "store_name") || site.name,
       currency,
       locale,
       shipping_fee: toMinor(form.get("shipping_fee")) ?? 0,

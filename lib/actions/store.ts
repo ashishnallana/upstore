@@ -6,7 +6,7 @@ import { getUser } from "@/lib/auth";
 import { getLineQuantity, setCartQuantity } from "@/lib/cart";
 import { TAGS } from "@/lib/data/catalog";
 import { getPaymentProvider } from "@/lib/payments";
-import { adminClient } from "@/lib/supabase/admin";
+import { recordPaymentResult } from "@/lib/payments/settle";
 import { createClient } from "@/lib/supabase/server";
 import type { ActionState } from "@/lib/types";
 import { str } from "@/lib/utils";
@@ -102,30 +102,48 @@ export async function placeOrder(_: ActionState, form: FormData): Promise<Action
   if (error) return { error: error.message };
 
   await invalidateOrderProducts(orderId);
-  const { data: order } = await supabase.from("orders").select("id,order_number,total,currency").eq("id", orderId).single();
-  const { redirectUrl } = await getPaymentProvider().createPayment(order!);
-  redirect(redirectUrl);
+  redirect(await beginPayment(orderId));
 }
 
-export async function payOrder(form: FormData) {
-  const orderId = str(form, "order_id");
+/** Where to send the customer to pay for one of their pending orders. */
+async function beginPayment(orderId: string): Promise<string> {
   // RLS: this only finds the order if it belongs to the signed-in user.
   const supabase = await createClient();
-  const { data: order } = await supabase.from("orders").select("id,status").eq("id", orderId).single();
+  const { data: order } = await supabase.from("orders").select("id,order_number,status,total,currency").eq("id", orderId).single();
+  if (!order) return "/account/orders";
+  if (order.status !== "pending") return `/account/orders/${orderId}`;
+  try {
+    return (await getPaymentProvider().createPayment(order)).redirectUrl;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Could not start the payment.";
+    return `/checkout/pay/${orderId}?error=${encodeURIComponent(message)}`;
+  }
+}
+
+/** "Pay now" / retry button on the payment page. */
+export async function startPayment(form: FormData) {
+  redirect(await beginPayment(str(form, "order_id")));
+}
+
+/** Test payment page (PAYMENT_PROVIDER=fake only): the customer picks the outcome. */
+export async function payOrder(form: FormData) {
+  if (getPaymentProvider().id !== "fake") redirect("/account/orders");
+  const orderId = str(form, "order_id");
+  const supabase = await createClient();
+  const { data: order } = await supabase.from("orders").select("id,status,total,currency").eq("id", orderId).single();
   if (!order) redirect("/account/orders");
   if (order.status !== "pending") redirect(`/account/orders/${orderId}`);
 
-  const provider = getPaymentProvider();
-  const result = await provider.verifyPayment({ orderId, outcome: str(form, "outcome") });
-  const { error } = await adminClient().rpc("record_payment", {
-    p_order_id: result.orderId,
-    p_provider: provider.id,
-    p_ref: result.reference,
-    p_success: result.success,
-    p_raw: result.raw ?? null,
+  const success = str(form, "outcome") === "success";
+  const outcome = await recordPaymentResult("fake", {
+    orderId,
+    success,
+    reference: `FAKE-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+    amount: order.total,
+    currency: order.currency,
+    raw: { simulated: true },
   });
-  if (error) redirect(`/checkout/pay/${orderId}?error=${encodeURIComponent(error.message)}`);
-  redirect(result.success ? `/account/orders/${orderId}?placed=1` : `/checkout/pay/${orderId}?error=Payment+failed.+Please+try+again.`);
+  redirect(outcome === "paid" ? `/account/orders/${orderId}?placed=1` : `/checkout/pay/${orderId}?error=Payment+failed.+Please+try+again.`);
 }
 
 export async function cancelOrder(orderId: string): Promise<ActionState> {

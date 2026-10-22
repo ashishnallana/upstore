@@ -34,13 +34,19 @@ lib/supabase/            server.ts (user session, RLS) · public.ts (anon, cooki
                          admin.ts (service role, bypasses RLS) · browser.ts (storage uploads only)
 lib/data/catalog.ts      Cached public reads + TAGS. lib/data/admin.ts: uncached admin reads
 lib/actions/*.ts         Every mutation ("use server"): auth, store (cart/checkout/reviews), account, admin
-lib/payments/            PaymentProvider interface + fake provider
+lib/payments/            PaymentProvider interface (index.ts), providers (fake.ts, youpi.ts), settle.ts (the only
+                         path to record_payment), reconcile.ts (return-page status lookup)
 lib/auth.ts              getUser / getProfile / requireUser / requireAdmin (React cache, per request)
 lib/cart.ts              Guest cookie cart ↔ cart_items table, mergeGuestCart on login
 lib/types.ts             Row types (hand-written, mirror the SQL)
 proxy.ts                 Session refresh + redirects for /account, /checkout, /admin
+site.config.ts           Storefront branding/copy (name, hero, home section titles, footer links)
 supabase/migrations/     Schema, RLS, SQL functions, storage buckets. supabase/seed.sql: demo data
 ```
+
+## Frontend vs. backend
+
+The frontend is meant to be re-skinned by forks. **CUSTOMIZING.md** is the guide for that, and its §4 "backend contract" lists the Server Action names and signatures, form field names, read functions and redirect URLs the UI relies on. When you change the backend, keep that contract or update CUSTOMIZING.md in the same change. When you change the UI, don't touch `supabase/`, `lib/actions/`, `lib/data/`, `lib/payments/` or `proxy.ts` unless the task requires it. Put user-facing brand copy in `site.config.ts`, not inline.
 
 ## Core rules
 
@@ -48,7 +54,7 @@ supabase/migrations/     Schema, RLS, SQL functions, storage buckets. supabase/s
 
 **Security lives in Postgres.** RLS is on for every table. Users can only touch their own profile, addresses, cart, wishlist, orders and reviews. Catalog writes require `is_admin()`. Things that must be atomic or tamper-proof are `SECURITY DEFINER` SQL functions:
 - `place_order` locks variant rows, recomputes prices, applies the coupon, decrements stock and clears the cart. Never compute order totals in TypeScript.
-- `record_payment` is executable **only by service_role**. Call it via `adminClient()` after verifying the payment (`payOrder` in `lib/actions/store.ts`).
+- `record_payment` is executable **only by service_role**. Never call it directly: use `recordPaymentResult()` in `lib/payments/settle.ts`, which is idempotent, ignores non-pending orders, and refuses a success whose amount or currency differs from the order.
 - `cancel_order`, `admin_update_order_status` (both release stock and coupons on cancel), `admin_set_role`, `admin_stats`, `preview_coupon`.
 - Column grants: users may update only `profiles(full_name, phone, avatar_url)` and `reviews(rating, title, body, is_published)`, and a trigger blocks non-admins from changing `is_published`. A PostgREST **upsert** sets every column, so on those tables use update/insert, not upsert.
 
@@ -81,5 +87,6 @@ Storage buckets: `products` (public read, admin write) and `avatars` (public rea
 - **New public page:** sync page plus `<Suspense>` around an async view. Read data through a cached function in `lib/data/catalog.ts` with a tag. Add the tag to `TAGS` and expire it from the admin action that changes the data.
 - **New mutation:** add to the relevant `lib/actions/*.ts` with `"use server"`. Signature `(prev: ActionState, form: FormData) => Promise<ActionState>` for forms (`<ActionForm>`), or a bound function for buttons (`<ActionButton action={fn.bind(null, id)}>`). Check auth first, then expire tags or call `refresh()`.
 - **Schema change:** add a **new** file `supabase/migrations/000N_*.sql` (never edit applied migrations). Enable RLS and add policies in the same file. Update `lib/types.ts`.
-- **Real payment gateway:** implement `PaymentProvider` in `lib/payments/<name>.ts`, return it from `getPaymentProvider()`. For webhook-based gateways, add `app/api/payments/<name>/route.ts` that verifies the signature, then calls `record_payment` via `adminClient()`. Keep secrets in env vars without the `NEXT_PUBLIC_` prefix.
+- **Payment gateway:** the provider is chosen by `PAYMENT_PROVIDER` (`fake` | `youpi`). To add one, implement `PaymentProvider` (`createPayment`, `lookup`) in `lib/payments/<name>.ts` and register it in `PROVIDERS` in `index.ts`. Add `app/api/payments/<name>/route.ts` for webhooks: verify the signature over the **raw** body (`request.text()`), re-fetch the result from the gateway API, then call `recordPaymentResult()`. Return non-2xx on transient errors so the gateway retries. Never mark an order paid from browser input or redirect query params. Secrets go in env vars without the `NEXT_PUBLIC_` prefix.
+- **YouPI specifics** (`lib/payments/youpi.ts`): `/order-failed` and `/checkout/return` are fixed paths the gateway redirects to. The webhook secret doubles as the `X-Merchant-Key` API key. Only `SUCCESS` with `method !== "COD"` is a payment. Suspicious payments are held by the gateway and never reported as `SUCCESS`. Source of truth for its API: `apps/payment-api/src/routes/payments.routes.js` and `packages/core/src/webhook-engine.js` in the YouPI repo.
 - **New admin section:** a page under `app/admin/` (starts with `await requireAdmin()`) and a link in `LINKS` in `app/admin/layout.tsx`.

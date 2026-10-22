@@ -2,6 +2,7 @@ import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
 import { publicClient } from "@/lib/supabase/public";
 import type { Category, CategoryNode, Product, ProductCard, Review, StoreSettings } from "@/lib/types";
+import { site } from "@/site.config";
 
 // Public catalog reads. Everything here is cached across requests and
 // invalidated by tag from admin Server Actions (see lib/actions/admin.ts).
@@ -16,7 +17,7 @@ export const TAGS = {
 };
 
 const DEFAULT_SETTINGS: StoreSettings = {
-  store_name: "UpStore",
+  store_name: site.name,
   currency: "INR",
   locale: "en-IN",
   shipping_fee: 4900,
