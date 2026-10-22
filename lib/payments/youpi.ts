@@ -22,20 +22,20 @@ function config() {
   const merchantId = process.env.YOUPI_MERCHANT_ID;
   const secret = process.env.YOUPI_WEBHOOK_SECRET;
   if (!apiUrl || !merchantId || !secret) {
-    throw new Error("YouPI is not configured: set YOUPI_API_URL, YOUPI_MERCHANT_ID and YOUPI_WEBHOOK_SECRET.");
+    throw new Error("YouPI is not configured: run `npm run gateway:configure` or set YOUPI_API_URL, YOUPI_MERCHANT_ID and YOUPI_WEBHOOK_SECRET.");
   }
-  return { apiUrl, merchantId, secret };
+  // A dedicated merchant API key is optional; the gateway also accepts the webhook secret.
+  return { apiUrl, merchantId, secret, apiKey: process.env.YOUPI_API_KEY || secret };
 }
 
 async function call<T>(path: string, init?: RequestInit): Promise<{ status: number; body: T }> {
-  const { apiUrl, merchantId, secret } = config();
+  const { apiUrl, merchantId, apiKey } = config();
   const res = await fetch(`${apiUrl}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
       "X-Merchant-Id": merchantId,
-      // The merchant webhook secret doubles as the API key (merchant-private views).
-      "X-Merchant-Key": secret,
+      "X-Merchant-Key": apiKey,
       ...init?.headers,
     },
     signal: AbortSignal.timeout(10_000),
@@ -63,6 +63,18 @@ function toResult(s: GatewaySession, utr?: string): PaymentResult | null {
       ...(isCod && { rejected: "Cash on delivery chosen at the gateway; this store only accepts prepaid UPI." }),
     },
   };
+}
+
+/**
+ * In localhost mode the gateway always reports http://localhost:7000 as its
+ * checkout origin. YOUPI_PUBLIC_CHECKOUT_URL (e.g. https://pay.example.com)
+ * swaps in the address customers can actually reach; path and query are kept.
+ */
+function publicCheckoutUrl(gatewayUrl: string) {
+  const base = process.env.YOUPI_PUBLIC_CHECKOUT_URL;
+  if (!base) return gatewayUrl;
+  const { pathname, search } = new URL(gatewayUrl);
+  return new URL(pathname + search, base.replace(/\/+$/, "") + "/").toString();
 }
 
 /** Constant-time check of `X-Gateway-Signature: sha256=<hex>` over the raw request body. */
@@ -96,7 +108,7 @@ export const youpiProvider: PaymentProvider = {
       }),
     });
     if (!body.checkoutUrl) throw new Error(body.message || body.error || `Payment gateway error (HTTP ${status}).`);
-    return { redirectUrl: body.checkoutUrl };
+    return { redirectUrl: publicCheckoutUrl(body.checkoutUrl) };
   },
 
   async lookup(orderId) {

@@ -10,7 +10,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # UpStore: agent guide
 
-A small, fast e-commerce store. **Next.js 16 (App Router, Cache Components) + TypeScript + Tailwind v4 + Supabase** (Postgres, Auth, Storage, RLS). Runtime dependencies are only `next`, `react`, `react-dom`, `@supabase/ssr`, `@supabase/supabase-js` and `server-only`. **Do not add libraries** (UI kits, state managers, form libs, ORMs, date libs) unless the user asks.
+A small, fast e-commerce store. **Next.js 16 (App Router, Cache Components) + TypeScript + Tailwind v4 + Supabase** (Postgres, Auth, Storage, RLS). Runtime dependencies are only `next`, `react`, `react-dom`, `@supabase/ssr`, `@supabase/supabase-js`, `server-only`, `nodemailer` (SMTP) and `pdf-lib` (invoices). **Do not add libraries** (UI kits, state managers, form libs, ORMs, date libs) unless the user asks.
 
 ## Commands
 
@@ -20,6 +20,8 @@ A small, fast e-commerce store. **Next.js 16 (App Router, Cache Components) + Ty
 | Type-check | `npx next typegen && npx tsc --noEmit` (typegen creates `PageProps`/`LayoutProps` route types) |
 | Lint | `npm run lint` |
 | Production build | `npm run build` (must pass; it validates Cache Components rules) |
+| Docker (store + gateway, one container) | `docker compose --env-file .env.docker up -d --build` (see README §3) |
+| Payment gateway (local dev) | `npm run gateway:init / gateway:up / gateway:configure / gateway:status / gateway:logs / gateway:down` (YouPI in Docker, see docs/PAYMENTS.md) |
 
 Before finishing a change, run type-check, lint and build.
 
@@ -34,6 +36,9 @@ lib/supabase/            server.ts (user session, RLS) · public.ts (anon, cooki
                          admin.ts (service role, bypasses RLS) · browser.ts (storage uploads only)
 lib/data/catalog.ts      Cached public reads + TAGS. lib/data/admin.ts: uncached admin reads
 lib/actions/*.ts         Every mutation ("use server"): auth, store (cart/checkout/reviews), account, admin
+lib/email/               mailer.ts (nodemailer SMTP transport), templates.ts (order email HTML + text)
+lib/invoice/pdf.ts       PDF invoice (pdf-lib, built-in Helvetica)
+lib/orders/              document.ts (order + items + seller + customer loader), notify.ts (queueOrderEmails)
 lib/payments/            PaymentProvider interface (index.ts), providers (fake.ts, youpi.ts), settle.ts (the only
                          path to record_payment), reconcile.ts (return-page status lookup)
 lib/auth.ts              getUser / getProfile / requireUser / requireAdmin (React cache, per request)
@@ -41,6 +46,13 @@ lib/cart.ts              Guest cookie cart ↔ cart_items table, mergeGuestCart 
 lib/types.ts             Row types (hand-written, mirror the SQL)
 proxy.ts                 Session refresh + redirects for /account, /checkout, /admin
 site.config.ts           Storefront branding/copy (name, hero, home section titles, footer links)
+gateway/                 YouPI deployment: docker-compose.yml builds upstream at a pinned commit (no YouPI code
+                         in this repo; it has no OSS license), .env.example for gateway secrets
+scripts/gateway.mjs      init / configure / status for the local dev gateway (writes YOUPI_* to .env.local)
+scripts/lib/youpi-admin.mjs  Shared gateway configuration (merchant webhook, UPI only, demo VPA removal)
+Dockerfile, docker-compose.yml, docker/start.mjs
+                         All-in-one image: YouPI built from upstream + Next standalone server; start.mjs runs
+                         both, configures the gateway on every start, exits if either dies
 supabase/migrations/     Schema, RLS, SQL functions, storage buckets. supabase/seed.sql: demo data
 ```
 
@@ -67,10 +79,19 @@ Server Actions still re-check auth (`requireUser` / `requireAdmin`) as defense i
 - After a mutation, call `updateTag(TAGS.x)` in Server Actions (read-your-writes), or `revalidateTag(tag, "max")` for background refresh. Use `refresh()` to re-render the current route for uncached data (cart, account, admin tables).
 - Don't call `Date.now()`, `new Date()` (no args) or `Math.random()` in prerendered server code.
 
+**Emails & invoices.**
+- Trigger order emails only via `queueOrderEmails(orderId, "paid" | "shipped" | "delivered" | "cancelled")` from `lib/orders/notify.ts`. It runs in `after()`, so it never blocks the response. It claims a unique `(order_id, kind)` row in `email_log` before sending, so repeated calls are safe. Never call `sendMail` for order emails directly.
+- Current hooks: `recordPaymentResult` (paid), `cancelOrder`, `updateOrderStatus`. A new status-changing path must call `queueOrderEmails` too.
+- Invoice numbers are assigned by the `orders_invoice_number` trigger when an order first leaves `pending` for a non-cancelled status. Never set `invoice_number` from code.
+- All email HTML goes through `esc()` in `templates.ts`. The PDF uses built-in fonts (Latin-1 only), so text goes through `safe()` and money is printed with the currency code.
+- Without `SMTP_USER`/`SMTP_PASS`, emails are logged as `skipped`, not sent. Order flows must never fail because of email.
+
 **Supabase query gotchas.**
 - `referencedTable` in `.order()` / `.limit()` must use the embed **alias** (`images`, `variants`, `product.product_images`).
 - Embedded results are typed loosely. Cast through `unknown` to a local `Row` type.
 - `lib/types.ts` is hand-maintained. Update it when you change the schema (or switch to `supabase gen types`).
+
+**Docker image.** `next.config.ts` uses `output: "standalone"`. `NEXT_PUBLIC_*` are build args (compiled in); everything else is read at runtime from `.env.docker`. Inside the container the store reaches the gateway at `127.0.0.1:6100`, webhooks come back over loopback, and only ports 3000 and 7000 are public (6001 is bound to the host's loopback). The gateway's data and secrets live in the `/app/youpi/data` volume. Change startup wiring in `docker/start.mjs`, and keep it in sync with `scripts/lib/youpi-admin.mjs`.
 
 **Next.js 16 specifics.** Middleware is `proxy.ts` (`export function proxy`). `revalidateTag` needs a second arg (`"max"`). `updateTag` and `refresh` only work in Server Actions. `PageProps<"/route">` / `LayoutProps<"/route">` are global generated types. Check `node_modules/next/dist/docs/` before using an API you're unsure of.
 
@@ -88,5 +109,5 @@ Storage buckets: `products` (public read, admin write) and `avatars` (public rea
 - **New mutation:** add to the relevant `lib/actions/*.ts` with `"use server"`. Signature `(prev: ActionState, form: FormData) => Promise<ActionState>` for forms (`<ActionForm>`), or a bound function for buttons (`<ActionButton action={fn.bind(null, id)}>`). Check auth first, then expire tags or call `refresh()`.
 - **Schema change:** add a **new** file `supabase/migrations/000N_*.sql` (never edit applied migrations). Enable RLS and add policies in the same file. Update `lib/types.ts`.
 - **Payment gateway:** the provider is chosen by `PAYMENT_PROVIDER` (`fake` | `youpi`). To add one, implement `PaymentProvider` (`createPayment`, `lookup`) in `lib/payments/<name>.ts` and register it in `PROVIDERS` in `index.ts`. Add `app/api/payments/<name>/route.ts` for webhooks: verify the signature over the **raw** body (`request.text()`), re-fetch the result from the gateway API, then call `recordPaymentResult()`. Return non-2xx on transient errors so the gateway retries. Never mark an order paid from browser input or redirect query params. Secrets go in env vars without the `NEXT_PUBLIC_` prefix.
-- **YouPI specifics** (`lib/payments/youpi.ts`): `/order-failed` and `/checkout/return` are fixed paths the gateway redirects to. The webhook secret doubles as the `X-Merchant-Key` API key. Only `SUCCESS` with `method !== "COD"` is a payment. Suspicious payments are held by the gateway and never reported as `SUCCESS`. Source of truth for its API: `apps/payment-api/src/routes/payments.routes.js` and `packages/core/src/webhook-engine.js` in the YouPI repo.
+- **YouPI specifics** (`lib/payments/youpi.ts`): `/order-failed` and `/checkout/return` are fixed paths the gateway redirects to. The webhook secret doubles as the `X-Merchant-Key` API key. Only `SUCCESS` with `method !== "COD"` is a payment. Suspicious payments are held by the gateway and never reported as `SUCCESS`. `gateway:configure` removes or deactivates YouPI's seeded demo receiving account (`merchant@upi`); never re-enable it. Source of truth for its API: `apps/payment-api/src/routes/payments.routes.js` and `packages/core/src/webhook-engine.js` in the YouPI repo.
 - **New admin section:** a page under `app/admin/` (starts with `await requireAdmin()`) and a link in `LINKS` in `app/admin/layout.tsx`.

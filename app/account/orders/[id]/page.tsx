@@ -28,6 +28,11 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/ac
       <PageTitle
         action={
           <div className="flex gap-2">
+            {order.invoice_number && (
+              <a href={`/account/orders/${order.id}/invoice`} target="_blank" className="btn-secondary">
+                Invoice
+              </a>
+            )}
             {order.status === "pending" && (
               <Link href={`/checkout/pay/${order.id}`} className="btn-primary">
                 Complete payment

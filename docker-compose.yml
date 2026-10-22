@@ -1,0 +1,33 @@
+# UpStore: store + YouPI payment gateway in one container.
+#
+#   cp .env.docker.example .env.docker      # fill it in
+#   docker compose --env-file .env.docker up -d --build
+#
+# --env-file is needed when building: it supplies the NEXT_PUBLIC_* build args, which
+# are compiled into the app. env_file supplies everything else at runtime. Other
+# commands (logs, ps, restart, down) work without it. See README → "Deploy with Docker".
+
+name: upstore
+
+services:
+  app:
+    build:
+      context: .
+      args:
+        # Empty here = build fails with a clear message (checked in the Dockerfile).
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-}
+        YOUPI_REF: ${YOUPI_REF:-d7b07414d803094525ceedd5cf81e8a38157263e}
+    image: upstore:latest
+    restart: unless-stopped
+    env_file: .env.docker
+    ports:
+      - "${STORE_PORT:-3000}:3000"          # store (put HTTPS in front of it)
+      - "${CHECKOUT_PORT:-7000}:7000"       # hosted UPI checkout (public, ideally its own HTTPS host)
+      - "127.0.0.1:${ADMIN_PORT:-6001}:6001" # gateway Merchant Admin: loopback only, reach it via SSH tunnel
+    volumes:
+      - upstore-data:/app/youpi/data         # gateway database + generated secrets: back this up
+
+volumes:
+  upstore-data:

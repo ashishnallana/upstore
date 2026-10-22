@@ -6,12 +6,20 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "gateway:init": "node scripts/gateway.mjs init",
+    "gateway:up": "docker compose -f gateway/docker-compose.yml up -d --build && node scripts/gateway.mjs configure",
+    "gateway:configure": "node scripts/gateway.mjs configure",
+    "gateway:status": "node scripts/gateway.mjs status",
+    "gateway:logs": "docker compose -f gateway/docker-compose.yml logs -f --tail=200",
+    "gateway:down": "docker compose -f gateway/docker-compose.yml down"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.118.0",
     "next": "16.4.2",
+    "nodemailer": "^10.0.16",
+    "pdf-lib": "^1.17.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "server-only": "^0.0.1"
@@ -19,6 +27,7 @@
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^20",
+    "@types/nodemailer": "^8.0.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

@@ -12,6 +12,16 @@ export interface StoreSettings {
   free_shipping_threshold: number;
 }
 
+/** Seller details printed on invoices and emails (migration 0002). */
+export interface SellerSettings extends StoreSettings {
+  legal_name: string | null;
+  address: string | null;
+  gstin: string | null;
+  support_email: string | null;
+  invoice_prefix: string;
+  invoice_notes: string | null;
+}
+
 export interface Profile {
   id: string;
   email: string | null;
@@ -150,6 +160,8 @@ export interface Order {
   coupon_code: string | null;
   shipping_address: ShippingAddress;
   notes: string | null;
+  invoice_number?: string | null;
+  invoiced_at?: string | null;
   created_at: string;
 }
 

@@ -1,0 +1,18 @@
+.git
+.github
+node_modules
+.next
+out
+coverage
+*.log
+*.tsbuildinfo
+next-env.d.ts
+
+# Secrets never go into the image; they're passed at runtime.
+.env*
+!.env.example
+gateway/.env
+
+.vscode
+.idea
+.claude

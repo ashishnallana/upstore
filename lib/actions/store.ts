@@ -6,6 +6,7 @@ import { getUser } from "@/lib/auth";
 import { getLineQuantity, setCartQuantity } from "@/lib/cart";
 import { TAGS } from "@/lib/data/catalog";
 import { getPaymentProvider } from "@/lib/payments";
+import { queueOrderEmails } from "@/lib/orders/notify";
 import { recordPaymentResult } from "@/lib/payments/settle";
 import { createClient } from "@/lib/supabase/server";
 import type { ActionState } from "@/lib/types";
@@ -151,6 +152,7 @@ export async function cancelOrder(orderId: string): Promise<ActionState> {
   const { error } = await supabase.rpc("cancel_order", { p_order_id: orderId });
   if (error) return { error: error.message };
   await invalidateOrderProducts(orderId);
+  queueOrderEmails(orderId, "cancelled");
   refresh();
   return { ok: "Order cancelled" };
 }

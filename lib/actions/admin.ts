@@ -3,7 +3,10 @@
 import { refresh, updateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
-import { TAGS } from "@/lib/data/catalog";
+import { getSettings, TAGS } from "@/lib/data/catalog";
+import { mailConfigured, sendMail } from "@/lib/email/mailer";
+import { renderTestEmail, type OrderEmailKind } from "@/lib/email/templates";
+import { queueOrderEmails, resendOrderEmail } from "@/lib/orders/notify";
 import { createClient } from "@/lib/supabase/server";
 import type { ActionState, OrderStatus, ProductOption, Role } from "@/lib/types";
 import { slugify, str, toMinor } from "@/lib/utils";
@@ -34,12 +37,43 @@ export async function saveSettings(_: ActionState, form: FormData): Promise<Acti
       locale,
       shipping_fee: toMinor(form.get("shipping_fee")) ?? 0,
       free_shipping_threshold: toMinor(form.get("free_shipping_threshold")) ?? 0,
+      legal_name: str(form, "legal_name") || null,
+      address: str(form, "address") || null,
+      gstin: str(form, "gstin").toUpperCase() || null,
+      support_email: str(form, "support_email") || null,
+      invoice_prefix: str(form, "invoice_prefix") || "INV-",
+      invoice_notes: str(form, "invoice_notes") || null,
     })
     .eq("id", true);
   if (error) return { error: error.message };
   updateTag(TAGS.settings);
   refresh();
   return { ok: "Settings saved" };
+}
+
+export async function sendTestEmail(_: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  if (!mailConfigured()) return { error: "SMTP isn't configured. Set SMTP_USER and SMTP_PASS in the environment and restart." };
+  const to = str(form, "to");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return { error: "Enter a valid email address." };
+  try {
+    await sendMail({ to, ...renderTestEmail((await getSettings()).store_name) });
+    return { ok: `Test email sent to ${to}.` };
+  } catch (err) {
+    return { error: `Sending failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+export async function resendEmail(orderId: string, kind: OrderEmailKind): Promise<ActionState> {
+  await requireAdmin();
+  try {
+    await resendOrderEmail(orderId, kind);
+  } catch (err) {
+    refresh();
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+  refresh();
+  return { ok: "Sent" };
 }
 
 // ───────── Categories ─────────
@@ -195,14 +229,22 @@ export async function deleteProduct(id: string, slug: string): Promise<ActionSta
 
 export async function updateOrderStatus(_: ActionState, form: FormData): Promise<ActionState> {
   await requireAdmin();
+  const orderId = str(form, "order_id");
+  const status = str(form, "status") as OrderStatus;
   const supabase = await createClient();
+  const { data: before } = await supabase.from("orders").select("status").eq("id", orderId).single();
   const { error } = await supabase.rpc("admin_update_order_status", {
-    p_order_id: str(form, "order_id"),
-    p_status: str(form, "status") as OrderStatus,
+    p_order_id: orderId,
+    p_status: status,
     p_note: str(form, "note") || null,
   });
   if (error) return { error: error.message };
-  if (str(form, "status") === "cancelled") updateTag(TAGS.products);
+  if (status === "cancelled") updateTag(TAGS.products);
+
+  // Marking a pending order as paid/processing (e.g. a payment confirmed by hand)
+  // issues the invoice, so send the confirmation too. Duplicates are ignored.
+  if (before?.status === "pending" && status !== "cancelled" && status !== "pending") queueOrderEmails(orderId, "paid");
+  if (status === "shipped" || status === "delivered" || status === "cancelled") queueOrderEmails(orderId, status);
   refresh();
   return { ok: "Order updated" };
 }

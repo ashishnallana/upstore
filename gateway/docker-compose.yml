@@ -1,0 +1,57 @@
+# YouPI PG: self-hosted UPI payment gateway used by UpStore (PAYMENT_PROVIDER=youpi).
+#
+# The gateway is built straight from its upstream repository at a pinned commit,
+# so no YouPI source is stored in this repo (YouPI has no open-source license).
+# To upgrade, change YOUPI_REF after reviewing the upstream changes.
+#
+#   npm run gateway:init        # one time: generate gateway/.env with fresh secrets
+#   npm run gateway:up          # build (first run takes a few minutes) and start
+#   npm run gateway:configure -- --upi=you@bank --payee="Your Name"
+#   npm run gateway:logs | gateway:down
+#
+# See docs/PAYMENTS.md for production deployment.
+
+name: upstore-gateway
+
+services:
+  youpi:
+    build:
+      context: https://github.com/youpi-pg/YouPI-PG.git#${YOUPI_REF:-d7b07414d803094525ceedd5cf81e8a38157263e}
+      target: runner
+    image: upstore/youpi-pg:${YOUPI_REF:-d7b07414d803094525ceedd5cf81e8a38157263e}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      YOUPI_BIND_HOST: "0.0.0.0"
+      USE_SQLITE_FALLBACK: "true"
+      SQLITE_DB_PATH: /app/data/youpi_pg.sqlite
+      PAYMENT_API_PORT: 6100
+      CHECKOUT_PORTAL_PORT: 7000
+      MERCHANT_ADMIN_PORT: 6001
+      SMS_OBSERVER_PORT: 6002
+      GMAIL_OBSERVER_PORT: 6003
+      COIN_WALLET_STORE_PORT: 5000
+      CONTROL_CENTER_PORT: 8090
+    # Lets the gateway reach the store on the host (webhooks in local development).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      # Public: the store's server calls the API; customers' browsers open the checkout.
+      - "6100:6100"   # Payment API
+      - "7000:7000"   # Hosted checkout
+      # Operator only, loopback: Merchant Admin, observers, supervisor.
+      - "127.0.0.1:6001:6001"
+      - "127.0.0.1:6002:6002"
+      - "127.0.0.1:6003:6003"
+      - "127.0.0.1:8090:8090"
+    volumes:
+      - youpi-data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:6100/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  youpi-data:

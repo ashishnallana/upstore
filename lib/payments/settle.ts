@@ -1,4 +1,5 @@
 import "server-only";
+import { queueOrderEmails } from "@/lib/orders/notify";
 import { adminClient } from "@/lib/supabase/admin";
 import type { PaymentResult } from "./index";
 
@@ -50,5 +51,7 @@ export async function recordPaymentResult(providerId: string, result: PaymentRes
     if (error.message.includes("not awaiting payment")) return "ignored";
     throw new Error(error.message);
   }
+  // Confirmation + invoice to the customer, new-order alert to the admin.
+  if (success) queueOrderEmails(order.id, "paid");
   return success ? "paid" : "failed";
 }

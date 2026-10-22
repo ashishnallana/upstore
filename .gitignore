@@ -21,6 +21,7 @@ next-env.d.ts
 # ── Environment & secrets (only the template is committed) ──
 .env*
 !.env.example
+!.env.docker.example
 *.pem
 *.key
 *.p12

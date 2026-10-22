@@ -167,6 +167,7 @@ Server code and Supabase send users to these paths. **If you rename a route, upd
 - `/checkout/return?order=<id>`: where the payment gateway sends customers after paying. It's registered with the gateway, so don't rename it.
 - `/order-failed`: fixed path the YouPI checkout redirects to on failure. Don't rename it.
 - `/api/payments/youpi`: webhook endpoint configured in the gateway. Don't rename it.
+- `/account/orders/<id>/invoice`: PDF invoice (add `?download` to force a download). Linked from the customer and admin order pages; also attached to the confirmation email.
 - `/account/orders/<id>?placed=1`: after payment (`lib/actions/store.ts`)
 - `/p/<slug>`: product links, also used in some redirects
 - `/account`, `/checkout`, `/admin`: prefixes protected in `proxy.ts`
@@ -234,6 +235,8 @@ const font = Outfit({ variable: "--font-inter", subsets: ["latin"] });
 Keeping the same `variable` name means no CSS changes are needed.
 
 **Dark mode.** Add `dark:` variants to the `@utility` blocks in `app/globals.css` and to the body base style. Components that use the utilities (`card`, `input`, `btn-*`) pick them up automatically.
+
+**Restyle emails and invoices.** Email HTML is in `lib/email/templates.ts`: the shared `layout()` wrapper, a `BRAND` color constant and one case per email. Keep the `esc()` calls around every database value. The invoice layout is in `lib/invoice/pdf.ts`. Seller details, invoice prefix and footer notes are edited in **Admin → Settings** with no code changes.
 
 **Translate the UI.** All copy is either in `site.config.ts` or inline in the page and component files. For multiple languages, see the Next.js i18n guide in `node_modules/next/dist/docs/01-app/02-guides/internationalization.md`.
 
